@@ -1212,7 +1212,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
           child: InkWell(
             onTap: () {
               if (bookId.isNotEmpty) {
-                if (lib.isPodcastLibrary) {
+                if (lib.isPodcastItem(book)) {
                   EpisodeListSheet.show(context, book);
                 } else {
                   showBookDetailSheet(context, bookId);

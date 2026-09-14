@@ -163,6 +163,23 @@ mixin _StateMixin on ChangeNotifier {
     return (lib['mediaType'] as String? ?? 'book') == 'podcast';
   }
 
+  /// Whether one item is a podcast, from the item itself. The selected
+  /// library is the wrong thing to ask when a list mixes types or was
+  /// reached from elsewhere: with the unified library a podcast playing
+  /// made a series list open its books as podcasts.
+  bool isPodcastItem(Map<String, dynamic>? item) {
+    final t = item?['mediaType'] as String?;
+    if (t != null) return t == 'podcast';
+    final media = item?['media'] as Map<String, dynamic>?;
+    if (media != null) {
+      if (media['episodes'] != null) return true;
+      if (media['numTracks'] != null || media['audioFiles'] != null) {
+        return false;
+      }
+    }
+    return isPodcastLibrary;
+  }
+
   String get selectedMediaType {
     final lib = selectedLibrary;
     if (lib == null) return 'book';

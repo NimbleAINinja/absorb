@@ -96,7 +96,7 @@ class _GridBookTileState extends State<GridBookTile> {
           return;
         }
         if (itemId.isNotEmpty) {
-          if (lib.isPodcastLibrary) {
+          if (lib.isPodcastItem(widget.item)) {
             EpisodeListSheet.show(context, widget.item);
           } else {
             showBookDetailSheet(context, itemId);
