@@ -1185,7 +1185,9 @@ class MoreMenuSheet extends StatefulWidget {
   final Color accent;
   final Widget Function(String id) buildItem;
   final void Function(List<String>, int) onReorder;
-  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, this.visibleCount = 4, required this.accent, required this.buildItem, required this.onReorder});
+  // The transcript slot reads Read along on a card whose book has an epub.
+  final bool readAlongLabel;
+  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, this.visibleCount = 4, required this.accent, required this.buildItem, required this.onReorder, this.readAlongLabel = false});
   @override State<MoreMenuSheet> createState() => _MoreMenuSheetState();
 }
 
@@ -1444,10 +1446,18 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(children: [
-                        Icon(isMore ? Icons.more_horiz_rounded : def!.icon, size: 20,
+                        Icon(
+                          isMore
+                              ? Icons.more_horiz_rounded
+                              : (id == 'lyrics' && widget.readAlongLabel ? Icons.auto_stories_rounded : def!.icon),
+                          size: 20,
                           color: id == 'remove' ? Colors.red.shade300 : cs.onSurface.withValues(alpha: 0.7)),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(isMore ? l.more : localizedCardButtonLabel(l, def!), style: tt.bodyMedium)),
+                        Expanded(child: Text(
+                          isMore
+                              ? l.more
+                              : (id == 'lyrics' && widget.readAlongLabel ? l.readAlong : localizedCardButtonLabel(l, def!)),
+                          style: tt.bodyMedium)),
                         if (isOnCard)
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
@@ -2118,6 +2128,7 @@ class CardActionDelegate {
         accent: accent,
         buildItem: (id) => buildMoreMenuItem(id, accent, tt, ctx),
         onReorder: (order, newCount) => onReorder(order, newCount),
+        readAlongLabel: _readAlongInstead,
       ),
     );
   }

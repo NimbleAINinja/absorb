@@ -15,12 +15,15 @@ String cssHex(int argb) =>
 
 /// Installs `window.__absorbRA` in the reader page. Safe to run more than
 /// once; a second run just refreshes the color.
-String readAlongBootstrap(int argb) {
+String readAlongBootstrap(int argb,
+    {bool eink = false, int fgArgb = 0xFF000000, int bgArgb = 0xFFFFFFFF}) {
   final hex = cssHex(argb);
   final r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
   return '(function() {'
       'var RA = window.__absorbRA = window.__absorbRA || {};'
       "RA.color = '$hex'; RA.rgb = '$r, $g, $b';"
+      "RA.eink = ${eink ? 'true' : 'false'};"
+      "RA.fg = '${cssHex(fgArgb)}'; RA.bg = '${cssHex(bgArgb)}';"
       '$_body'
       '})();';
 }
@@ -43,6 +46,14 @@ const String _body = r'''
   RA.css = function() {
     var c = RA.color, rgb = RA.rgb;
     var dim = 'rgba(' + rgb + ', 0.8)';
+    // E-ink shows a colored roll as a grey smear, and every repaint costs a
+    // flash, so the sentence gets one underline and nothing else changes.
+    // Bold is out too: it reflows the line and the whole paragraph redraws.
+    if (RA.eink) {
+      return '' +
+        '.absorb-ra-w, .absorb-ra-s { text-decoration: underline;' +
+        ' text-decoration-thickness: 2px; text-underline-offset: 3px; }';
+    }
     return '' +
       '.absorb-ra-w { color: transparent !important;' +
       ' background-image: linear-gradient(' + c + ', ' + c + '),' +
