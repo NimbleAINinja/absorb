@@ -15075,12 +15075,6 @@ abstract class AppLocalizations {
   /// **'Can\'t find the narration on the page'**
   String get readAlongLost;
 
-  /// No description provided for @readAlongReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Read along is ready'**
-  String get readAlongReady;
-
   /// No description provided for @findInEbook.
   ///
   /// In en, this message translates to:

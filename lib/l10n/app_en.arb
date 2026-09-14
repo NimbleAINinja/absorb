@@ -4899,7 +4899,6 @@
   "readAlongFollowSentence": "Sentence",
   "readAlongColor": "Read along color",
   "readAlongLost": "Can't find the narration on the page",
-  "readAlongReady": "Read along is ready",
   "@readAlongLost": {
     "description": "Read along pill after 45s of narration that matches nothing on the page"
   },

@@ -3748,6 +3748,9 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   /// in the bottom chrome, so it is there whenever the controls are.
   Widget _readAlongSyncPill(Color fg) {
     final svc = LyricsService.instance;
+    // The start-up card already says what the pill would, in the middle of
+    // the page; showing both reads as two different things happening.
+    if (_readAlongPrep != null) return const SizedBox.shrink();
     return AnimatedBuilder(
       animation: svc,
       builder: (context, _) {
@@ -3959,11 +3962,8 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         await player.play(logDetail: 'read along ready', fromUi: true);
       }
     } else if (_readAlongGateWaiting) {
+      // The card leaving and the first sentence lighting up say it all.
       _readAlongGateWaiting = false;
-      if (!player.isPlaying && mounted) {
-        showOverlayToast(context, AppLocalizations.of(context)!.readAlongReady,
-            icon: Icons.auto_stories_rounded);
-      }
     }
     final pos = player.position.inMilliseconds / 1000.0;
     // Same sync offset the player uses, so headphones don't run the reader's

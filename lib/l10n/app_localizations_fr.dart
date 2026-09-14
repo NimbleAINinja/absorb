@@ -8775,9 +8775,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get readAlongLost => 'Can\'t find the narration on the page';
 
   @override
-  String get readAlongReady => 'Read along is ready';
-
-  @override
   String get findInEbook => 'Find in ebook';
 
   @override
