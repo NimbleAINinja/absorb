@@ -108,9 +108,19 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       'keyCode=${snap['lastKeyCode']} keyAgeMs=${snap['lastKeyAgeMs']} '
       'lastPlayCaller=${snap['lastPlayCaller']} playAgeMs=${snap['lastPlayCallerAgeMs']} '
       'lastPauseCaller=${snap['lastPauseCaller']} pauseAgeMs=${snap['lastPauseCallerAgeMs']} '
-      'carClientAgeMs=${snap['carClientAgeMs']}',
+      'carClientAgeMs=${snap['carClientAgeMs']} keyPkg=${snap['lastKeyPkg']}',
     );
   }
+
+  static bool _isCarPackage(String? pkg) =>
+      pkg != null &&
+      (pkg == 'com.google.android.projection.gearhead' ||
+          pkg.startsWith('com.android.car'));
+
+  /// Our own widget sends its play button through the media session like a
+  /// headset would; the package tells them apart.
+  static bool _isOwnPackage(String? pkg) =>
+      pkg != null && pkg.startsWith('com.barnabas.absorb');
 
   static Future<void> _logAbsorbDiag(String tag) async {
     _logAbsorbDiagFromSnapshot(tag, await _absorbDiagSnapshot());
@@ -657,6 +667,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   // Android Auto sends KEYCODE_MEDIA_PAUSE when the user switches to Radio,
   // and the old toggle path bounced it back as a phantom resume (GH #243).
   int? _lastClickKeyCode;
+  String? _lastClickKeyPkg;
   // When the debounce-free resume last fired, so a second press arriving just
   // after it is still read as a double-press skip rather than a fresh click.
   DateTime? _fastPathPlayAt;
@@ -825,6 +836,8 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       final kc = diagSnap['lastKeyCode'];
       if (age is int && age >= 0 && age < 500 && kc is int && kc != 0) {
         _lastClickKeyCode = kc;
+        final pkg = diagSnap['lastKeyPkg'];
+        _lastClickKeyPkg = pkg is String ? pkg : null;
       }
     }
 
@@ -904,26 +917,47 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
             const keycodeMediaPlay = 126;
             const keycodeMediaPause = 127;
             final kc = _lastClickKeyCode;
+            final pkg = _lastClickKeyPkg;
             _lastClickKeyCode = null;
+            _lastClickKeyPkg = null;
+            final sincePause = _lastHandlerPauseAt == null
+                ? null
+                : DateTime.now().difference(_lastHandlerPauseAt!);
+            // A key that reaches us while something else is audible was
+            // probably meant for that something else (an earbud pausing a
+            // video) - unless we paused a moment ago, in which case the
+            // user is toggling us back and the other sound is beside the
+            // point. A beta tester with a car link could not resume from
+            // his headset or his widget for two hours because of this.
+            Future<bool> meantForOtherAudio() async {
+              if (_isOwnPackage(pkg)) return false;
+              if (sincePause != null && sincePause < const Duration(minutes: 3)) {
+                return false;
+              }
+              return _otherAudioActive();
+            }
             if (kc == keycodeMediaPause) {
               if (_player.playing) {
                 debugPrint('[Handler] → single press (MEDIA_PAUSE) → PAUSE');
                 await pause();
-              } else if (await _carClientRecentlySeen()) {
+              } else if ((_isCarPackage(pkg) ||
+                      (pkg == null && await _carClientRecentlySeen())) &&
+                  sincePause != null &&
+                  sincePause < const Duration(seconds: 4)) {
+                // The #243 phantom: Android Auto repeats MEDIA_PAUSE right
+                // after we paused. A press seconds later is a person.
                 debugPrint(
-                  '[Handler] -> single press (MEDIA_PAUSE while paused) -> no-op (suppressed phantom toggle to PLAY, car client seen)',
+                  '[Handler] -> single press (MEDIA_PAUSE ${sincePause.inMilliseconds}ms after pausing, car) -> no-op (phantom)',
                 );
-              } else if (await _otherAudioActive()) {
+              } else if (await meantForOtherAudio()) {
                 debugPrint(
                   '[Handler] -> single press (MEDIA_PAUSE while paused, other audio active) -> no-op',
                 );
               } else {
                 // Some BT headsets (Shokz seen in the wild) send MEDIA_PAUSE
                 // for a play press when their idea of our state went stale.
-                // Without a car around there is no #243 phantom to guard
-                // against, so treat it as the toggle the user meant.
                 debugPrint(
-                  '[Handler] -> single press (MEDIA_PAUSE while paused, no car client) -> PLAY',
+                  '[Handler] -> single press (MEDIA_PAUSE while paused, pkg=$pkg) -> PLAY',
                 );
                 await play();
               }
@@ -939,12 +973,12 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
             } else if (_player.playing) {
               debugPrint('[Handler] → single press → PAUSE');
               await pause();
-            } else if (await _otherAudioActive()) {
+            } else if (await meantForOtherAudio()) {
               debugPrint(
                 '[Handler] -> single press while paused, other audio active -> no-op',
               );
             } else {
-              debugPrint('[Handler] → single press → PLAY');
+              debugPrint('[Handler] → single press (pkg=$pkg) → PLAY');
               await play();
             }
           } finally {

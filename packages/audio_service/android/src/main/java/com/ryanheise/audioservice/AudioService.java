@@ -109,6 +109,10 @@ public class AudioService extends MediaBrowserServiceCompat {
     private static final Map<String, MediaMetadataCompat> mediaMetadataCache = new HashMap<>();
     private static volatile int lastMediaKeyCode = -1;
     private static volatile long lastMediaKeyAt = 0;
+    // Who dispatched the last media key: our own widget, the car, or the
+    // system on behalf of a headset. Lets the Dart side tell a press the
+    // user made on Absorb's widget from one a car head unit sent.
+    private static volatile String lastMediaKeyPkg = null;
     private static volatile long lastPlayAt = 0;
     private static volatile long lastPauseAt = 0;
     // Stamped whenever a car client (Android Auto / Automotive) touches the
@@ -135,6 +139,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         snapshot.put("lastPauseCaller", "mediaSession");
         snapshot.put("lastPauseCallerAgeMs", lastPauseAt == 0 ? -1 : now - lastPauseAt);
         snapshot.put("carClientAgeMs", lastCarClientAt == 0 ? -1 : now - lastCarClientAt);
+        snapshot.put("lastKeyPkg", lastMediaKeyPkg);
         return snapshot;
     }
 
@@ -1060,6 +1065,11 @@ public class AudioService extends MediaBrowserServiceCompat {
                 stampCarController();
                 lastMediaKeyCode = event.getKeyCode();
                 lastMediaKeyAt = SystemClock.elapsedRealtime();
+                try {
+                    lastMediaKeyPkg = mediaSession.getCurrentControllerInfo().getPackageName();
+                } catch (Exception e) {
+                    lastMediaKeyPkg = null;
+                }
                 switch (event.getKeyCode()) {
                 case KEYCODE_BYPASS_PLAY:
                     onPlay();
