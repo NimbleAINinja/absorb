@@ -545,11 +545,15 @@ class DownloadService extends ChangeNotifier {
   /// ebook bytes live in the reader's persistent cache (fetchEbookToCache).
   /// Fetches a full copy of the item so the offline sheet has the cover,
   /// description, and ebookFile - not just the title.
-  Future<void> registerEbookDownload({
+  /// With [onlyIfNoAudio], a book that has audio is left alone: opening the
+  /// companion ebook of an audiobook must not mark the audiobook downloaded.
+  /// Returns whether a record was written.
+  Future<bool> registerEbookDownload({
     required ApiService api,
     required String itemId,
     Map<String, dynamic>? item,
     String? libraryId,
+    bool onlyIfNoAudio = false,
   }) async {
     Map<String, dynamic>? fullItem;
     try {
@@ -557,6 +561,15 @@ class DownloadService extends ChangeNotifier {
     } catch (_) {}
     final stored = fullItem ?? item ?? {'id': itemId};
     final media = stored['media'] as Map<String, dynamic>?;
+    if (onlyIfNoAudio) {
+      final tracks = media?['numTracks'];
+      final audioFiles = media?['audioFiles'];
+      final duration = media?['duration'];
+      final hasAudio = (tracks is num && tracks > 0) ||
+          (audioFiles is List && audioFiles.isNotEmpty) ||
+          (duration is num && duration > 0);
+      if (fullItem == null || hasAudio) return false;
+    }
     final metadata = media?['metadata'] as Map<String, dynamic>?;
     final title = metadata?['title'] as String?;
     final author = metadata?['authorName'] as String?;
@@ -580,6 +593,8 @@ class DownloadService extends ChangeNotifier {
     );
     await _save();
     notifyListeners();
+    debugPrint('[Download] ebook-only book kept for offline: $itemId');
+    return true;
   }
 
   bool isDownloading(String itemId) =>
@@ -1484,21 +1499,67 @@ class DownloadService extends ChangeNotifier {
   /// (killed mid-transfer, offline at the time). Called when the app comes up
   /// with a working connection; cheap when everything is already cached.
   Future<void> catchUpEbookCaches(ApiService api) async {
-    for (final info in _downloads.values.toList()) {
+    var changed = false;
+    for (final entry in _downloads.entries.toList()) {
+      final info = entry.value;
       if (info.status != DownloadStatus.downloaded) continue;
       if (info.sessionData == null) continue;
       try {
         final session = jsonDecode(info.sessionData!) as Map<String, dynamic>;
-        final ebookFile =
-            resolveEbookFile(session['libraryItem'] as Map<String, dynamic>?);
-        if (ebookFile == null) continue;
+        var item = session['libraryItem'] as Map<String, dynamic>?;
+        var ebookFile = resolveEbookFile(item);
         final apiItemId = session['libraryItemId'] as String? ?? info.itemId;
+        if (ebookFile == null) {
+          // The record was written when the book was downloaded. An epub
+          // dropped into the folder later never reaches it, so offline Read
+          // says there is no ebook while the web app shows one. Ask the
+          // server once per run for books whose record has none.
+          if (session['episodeId'] != null || item == null) continue;
+          if (!_ebookRecheckDone.add(apiItemId)) continue;
+          final fresh = await api.getLibraryItem(apiItemId);
+          ebookFile = resolveEbookFile(fresh);
+          if (fresh == null || ebookFile == null) continue;
+          final freshMedia = fresh['media'] as Map<String, dynamic>? ?? {};
+          final media =
+              Map<String, dynamic>.from(item['media'] as Map<String, dynamic>? ?? {});
+          media['ebookFile'] = freshMedia['ebookFile'];
+          item = Map<String, dynamic>.from(item)
+            ..['media'] = media
+            ..['libraryFiles'] = [ebookFile];
+          session['libraryItem'] = item;
+          _downloads[entry.key] = DownloadInfo(
+            itemId: info.itemId,
+            status: info.status,
+            progress: info.progress,
+            localPaths: info.localPaths,
+            sessionData: jsonEncode(session),
+            title: info.title,
+            author: info.author,
+            coverUrl: info.coverUrl,
+            localCoverPath: info.localCoverPath,
+            localDirPath: info.localDirPath,
+            libraryId: info.libraryId,
+          );
+          changed = true;
+          debugPrint('[Download] ebook appeared on the server after the '
+              'download: $apiItemId (${ebookFile['ebookFormat'] ?? ebookFile['metadata']?['ext']})');
+        }
         if (await isEbookCached(apiItemId, ebookFile)) continue;
         await _cacheEbookForOffline(
             api, apiItemId, ebookFile, info.title ?? apiItemId);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[Download] ebook catch-up failed for ${info.itemId}: $e');
+      }
+    }
+    if (changed) {
+      await _save();
+      notifyListeners();
     }
   }
+
+  // Books already asked about this run, so a library of downloads costs one
+  // item fetch each per launch, not one per reconnect.
+  final Set<String> _ebookRecheckDone = {};
 
   /// Resolve a book/episode to durable per-file download tasks and enqueue them.
   /// Returns once the tasks are handed to `background_downloader`; progress and

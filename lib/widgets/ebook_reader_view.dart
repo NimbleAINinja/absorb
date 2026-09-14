@@ -15,6 +15,8 @@ import '../providers/library_provider.dart';
 import '../screens/app_shell.dart';
 import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/chapter_lookup.dart';
+import '../services/download_service.dart';
 import '../services/ebook_annotation_service.dart';
 import '../services/ebook_cache.dart';
 import '../services/find_in_ebook.dart';
@@ -793,6 +795,16 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       debugPrint('[EbookReader] open item=${widget.itemId} ext=${ebookExtFromFile(widget.ebookFile)} '
           'cached=${await isEbookCached(widget.itemId, widget.ebookFile)} playing=$playing');
       final file = await fetchEbookToCache(api, widget.itemId, widget.ebookFile, widget.title);
+      // The file is now on the device, but the offline library only lists
+      // download records. An ebook-only book that has been read should be
+      // there too, not just one saved from its detail sheet.
+      if (!DownloadService().isDownloaded(widget.itemId)) {
+        unawaited(DownloadService().registerEbookDownload(
+          api: api,
+          itemId: widget.itemId,
+          onlyIfNoAudio: true,
+        ));
+      }
       final len = file.existsSync() ? await file.length() : 0;
       final locations = await loadCachedLocations(file);
       debugPrint('[EbookReader] file ready item=${widget.itemId} bytes=$len '
