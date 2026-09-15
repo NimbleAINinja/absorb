@@ -7963,6 +7963,13 @@ class AppLocalizationsZh extends AppLocalizations {
       'Pins them above the page instead of showing them on tap. The page gets a little shorter so no text is covered.';
 
   @override
+  String get readerKeepAwake => 'Keep the screen on';
+
+  @override
+  String get readerKeepAwakeHint =>
+      'The screen won\'t time out while a book is open.';
+
+  @override
   String get readerLayoutAuto => 'Auto';
 
   @override

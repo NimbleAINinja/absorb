@@ -13911,6 +13911,18 @@ abstract class AppLocalizations {
   /// **'Pins them above the page instead of showing them on tap. The page gets a little shorter so no text is covered.'**
   String get readerPinTopBarHint;
 
+  /// No description provided for @readerKeepAwake.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the screen on'**
+  String get readerKeepAwake;
+
+  /// No description provided for @readerKeepAwakeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The screen won\'t time out while a book is open.'**
+  String get readerKeepAwakeHint;
+
   /// No description provided for @readerLayoutAuto.
   ///
   /// In en, this message translates to:

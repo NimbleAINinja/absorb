@@ -225,6 +225,9 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   // Keep the title and progress bar on screen above the page instead of
   // fading them in over it. The page gets shorter, never covered.
   bool _pinTop = false;
+  // Hold the screen on for the whole read, not only while auto scroll or
+  // read along moves the page (GH #384).
+  bool _keepAwake = true;
   static const _spreadModes = [EpubSpread.auto, EpubSpread.none, EpubSpread.always];
   // E-reader background theme (empty = follow the app's light/dark) and font.
   String _themeId = '';
@@ -239,6 +242,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   static const _kTheme = 'ereader_theme';
   static const _kFont = 'ereader_font';
   static const _kPinTop = 'ereader_pin_top';
+  static const _kKeepAwake = 'ereader_keep_awake';
 
   // Gates the WebView mount until the entering route animation completes, so
   // the heavy platform view doesn't stutter the open transition.
@@ -417,6 +421,8 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     _themeId = await ScopedPrefs.getString(_kTheme) ?? '';
     _fontId = await ScopedPrefs.getString(_kFont) ?? 'original';
     _pinTop = await ScopedPrefs.getBool(_kPinTop) ?? false;
+    _keepAwake = await ScopedPrefs.getBool(_kKeepAwake) ?? true;
+    if (mounted) _syncScreenWake();
     _volumeNavMode = await PlayerSettings.getEreaderVolumeNav();
     _volumeNavWhilePlaying = await PlayerSettings.getEreaderVolumeNavWhilePlaying();
     _autoScrollSpeed = (await PlayerSettings.getEreaderAutoScrollSpeed())
@@ -584,6 +590,20 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     await ScopedPrefs.setInt(_kMarginH, margin);
   }
 
+  /// The screen stays on while the setting, auto scroll or read along asks
+  /// for it. Every path that changes one of those ends here, and dispose
+  /// releases it outright since the platform never clears it on its own.
+  void _syncScreenWake() {
+    ScreenWake.keepOn(_keepAwake || _autoScroll || _readAlongOn);
+  }
+
+  Future<void> _updateKeepAwake(bool on) async {
+    if (on == _keepAwake) return;
+    setState(() => _keepAwake = on);
+    _syncScreenWake();
+    await ScopedPrefs.setBool(_kKeepAwake, on);
+  }
+
   Future<void> _updatePinTop(bool on) async {
     if (on == _pinTop) return;
     // The WebView gets shorter or taller, so epub.js re-paginates and
@@ -608,10 +628,8 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   void dispose() {
     _stopReadAlong();
     _speedToast?.dismiss();
-    if (_autoScroll) {
-      _epubController?.autoScrollStop();
-      ScreenWake.keepOn(false);
-    }
+    if (_autoScroll) _epubController?.autoScrollStop();
+    ScreenWake.keepOn(false);
     _quietLib.setReaderQuiet(false);
     WidgetsBinding.instance.removeObserver(this);
     _volumeNav.detach();
@@ -1589,6 +1607,17 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
                     _updatePinTop(v);
                   },
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(l.readerKeepAwake, style: tt.bodyMedium),
+                  subtitle: Text(l.readerKeepAwakeHint,
+                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  value: _keepAwake,
+                  onChanged: (v) {
+                    setSheetState(() {});
+                    _updateKeepAwake(v);
+                  },
+                ),
                 const SizedBox(height: 8),
 
                 // Theme (background + text colors)
@@ -1788,11 +1817,11 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         final atEnd = args.isNotEmpty && args[0]?.toString() == 'end';
         _speedToast?.dismiss();
         _speedToast = null;
-        ScreenWake.keepOn(false);
         setState(() {
           _autoScroll = false;
           _autoScrollPaused = false;
         });
+        _syncScreenWake();
         final l = AppLocalizations.of(context)!;
         showOverlayToast(
           context,
@@ -1838,11 +1867,12 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   Future<void> _toggleAutoScroll() async {
     if (_autoScroll) {
       await _epubController?.autoScrollStop();
-      ScreenWake.keepOn(false);
-      if (mounted) setState(() {
+      if (!mounted) return;
+      setState(() {
         _autoScroll = false;
         _autoScrollPaused = false;
       });
+      _syncScreenWake();
       return;
     }
     // Read along and the blind both move the page; only one runs at a time.
@@ -3905,7 +3935,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       }
     }
     LyricsService.instance.readerOwns = false;
-    if (!_autoScroll) ScreenWake.keepOn(false);
+    _syncScreenWake();
     if (_readAlongStartedPipeline) {
       LyricsService.instance.disable();
       _readAlongStartedPipeline = false;

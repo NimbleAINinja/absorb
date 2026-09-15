@@ -4637,6 +4637,8 @@
   "readerPageLayout": "Page layout",
   "readerPinTopBar": "Keep the title and progress bar on screen",
   "readerPinTopBarHint": "Pins them above the page instead of showing them on tap. The page gets a little shorter so no text is covered.",
+  "readerKeepAwake": "Keep the screen on",
+  "readerKeepAwakeHint": "The screen won't time out while a book is open.",
   "readerLayoutAuto": "Auto",
   "readerLayoutSingle": "Single",
   "readerLayoutTwoPage": "Two-page",
