@@ -795,6 +795,16 @@ class HomeWidgetService {
   ) async {
     final itemId = player.currentItemId;
     if (itemId == null) return;
+    // While a new item is loading the ids already point at it but the
+    // player's position still belongs to the previous source. Stamping that
+    // pair leaves the new episode carrying the old one's position when the
+    // load fails (GH #385: a podcast auto-advance whose session never
+    // started resumed the next episode from the end of the previous one).
+    // The stash catches up on the update that follows a finished load.
+    if (player.isLoadingNewItem) {
+      debugPrint('[WidgetDebug] Skipping np stash while $itemId is loading');
+      return;
+    }
     await HomeWidget.saveWidgetData<String>('np_item_id', itemId);
     await HomeWidget.saveWidgetData<String?>(
       'np_episode_id',
