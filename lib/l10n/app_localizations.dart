@@ -13920,7 +13920,7 @@ abstract class AppLocalizations {
   /// No description provided for @readerKeepAwakeHint.
   ///
   /// In en, this message translates to:
-  /// **'The screen won\'t time out while a book is open.'**
+  /// **'Stops the screen timing out while you read at your own pace. Auto scroll and read along always keep it on.'**
   String get readerKeepAwakeHint;
 
   /// No description provided for @readerLayoutAuto.
