@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'audio_player_service.dart';
 import 'api_service.dart';
 import 'download_service.dart';
+import 'progress_sync_service.dart';
 import 'scoped_prefs.dart';
 import 'user_account_service.dart';
 import 'wear_player_service.dart';
@@ -191,6 +192,17 @@ class HomeWidgetService {
   ) => stashedPosition != null && stashedPosition > startTime + 1.0
       ? stashedPosition
       : null;
+
+  /// Whether the local progress record for the last-played item says it is
+  /// done: flagged finished, or saved within a second of the end, which is
+  /// the same cut-off the play path uses to start a book over.
+  static bool lastPlayedIsFinished(Map<String, dynamic>? local) {
+    if (local == null) return false;
+    if (local['isFinished'] == true) return true;
+    final duration = (local['duration'] as num?)?.toDouble() ?? 0;
+    final currentTime = (local['currentTime'] as num?)?.toDouble() ?? 0;
+    return duration > 0 && currentTime >= duration - 1.0;
+  }
 
   /// The stash readers/writers below can run before [init] (the boot-time
   /// engine adopt fires right after the player service starts), and the
@@ -453,14 +465,29 @@ class HomeWidgetService {
     final itemId = prefs.getString('widget_item_id');
     debugPrint('[HomeWidget] play_pause: cold resume, itemId=$itemId');
     if (itemId == null) return;
+    final episodeId = prefs.getString('widget_episode_id');
+
+    // The last-played marker still names an item after it finishes with
+    // nothing queued behind it. A headset or car play press then restarted
+    // it from the top (the play path treats a saved position at the end as
+    // "start over") and the first sync un-finished it on the server
+    // (GH #374). A finished item is nothing to resume.
+    final progressKey = episodeId != null ? '$itemId-$episodeId' : itemId;
+    if (lastPlayedIsFinished(
+      await ProgressSyncService().getLocal(progressKey),
+    )) {
+      debugPrint(
+        '[HomeWidget] play_pause: last played $progressKey is finished - '
+        'nothing to resume',
+      );
+      return;
+    }
 
     final api = _apiFromPrefs(prefs);
     debugPrint(
       '[HomeWidget] play_pause: api=${api != null}',
     );
     if (api == null) return;
-
-    final episodeId = prefs.getString('widget_episode_id');
 
     try {
       // A downloaded item needs nothing from the server to start: the download
