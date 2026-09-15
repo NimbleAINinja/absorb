@@ -11,7 +11,6 @@ import java.io.File
 import java.io.FileInputStream
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
-import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +25,7 @@ import android.view.WindowManager
 import com.ryanheise.audioservice.AudioService
 import com.ryanheise.audioservice.AudioServiceActivity
 import com.ryanheise.audioservice.AudioServicePlugin
+import com.ryanheise.just_audio.GainController
 import com.ryanheise.just_audio.MonoController
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import io.flutter.embedding.engine.FlutterEngine
@@ -45,10 +45,11 @@ class MainActivity : AudioServiceActivity() {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
-    private var loudnessEnhancer: LoudnessEnhancer? = null
     private var currentSessionId: Int = 0
     private var eqEnabled: Boolean = false
-    private var eqLoudnessGainMb: Int = 0  // gain from EQ loudness slider
+    // Loudness is sample gain in the player's audio sink (GainAudioProcessor),
+    // not a session effect, so it survives the activity and effect teardown.
+    private var eqLoudnessGainMb: Int = 0
     // Some devices (e.g. older Samsung on Android 9) have a broken audio-effect
     // HAL that fails to initialize. Constructing AudioEffects against it during
     // playback can crash the process natively, which Kotlin can't catch. Once
@@ -455,17 +456,7 @@ class MainActivity : AudioServiceActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "Virtualizer not supported: ${e.message}"); null
             }
-            loudnessEnhancer = try {
-                LoudnessEnhancer(sessionId).apply {
-                    setTargetGain(eqLoudnessGainMb)
-                    enabled = false
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "LoudnessEnhancer not supported: ${e.message}"); null
-            }
-
-            // Alpha: capture LoudnessEnhancer/eq state on attach for GH #179 (volume falls off).
-            Log.d(TAG, "Effects attached to session $sessionId: eqEnabled=$eqEnabled loudnessGainMb=$eqLoudnessGainMb loudnessEffectOk=${loudnessEnhancer != null}")
+            Log.d(TAG, "Effects attached to session $sessionId: eqEnabled=$eqEnabled loudnessGainMb=$eqLoudnessGainMb")
             result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "attachSession failed: ${e.message}")
@@ -521,8 +512,7 @@ class MainActivity : AudioServiceActivity() {
     private fun handleSetLoudness(gain: Int, result: MethodChannel.Result) {
         try {
             eqLoudnessGainMb = gain
-            loudnessEnhancer?.setTargetGain(gain)
-            loudnessEnhancer?.enabled = gain > 0
+            GainController.setGainMb(gain)
             result.success(true)
         } catch (e: Exception) {
             result.error("EQ_ERROR", e.message, null)
@@ -533,12 +523,9 @@ class MainActivity : AudioServiceActivity() {
         try { equalizer?.release() } catch (_: Exception) {}
         try { bassBoost?.release() } catch (_: Exception) {}
         try { virtualizer?.release() } catch (_: Exception) {}
-        try { loudnessEnhancer?.release() } catch (_: Exception) {}
         equalizer = null
         bassBoost = null
         virtualizer = null
-        loudnessEnhancer = null
-        eqLoudnessGainMb = 0
         eqEnabled = false
     }
 
