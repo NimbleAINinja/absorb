@@ -2611,8 +2611,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(child: AbsorbSlider(
                           value: _defaultSpeed,
                           min: 0.5,
-                          max: 3.0,
-                          divisions: 50,
+                          max: 5.0,
+                          divisions: 90,
                           activeColor: cs.primary,
                           onChanged: _loaded ? _setDefaultSpeed : null,
                         )),
@@ -2632,7 +2632,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('0.5x', style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)),
-                          Text('3.0x', style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)),
+                          Text('5.0x', style: TextStyle(color: cs.onSurface.withValues(alpha: 0.3), fontSize: 11)),
                         ],
                       ),
                     ),
@@ -2640,7 +2640,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: Wrap(
                         spacing: 6, runSpacing: 4,
-                        children: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].map((s) {
+                        children: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0].map((s) {
                           final isActive = (_defaultSpeed - s).abs() < 0.01;
                           return ActionChip(
                             label: Text(l.speedValue(s.toString()),

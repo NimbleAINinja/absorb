@@ -695,7 +695,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
   }
   void _setSpeed(double v) {
     final s = (v * 20).round() / 20.0;
-    setState(() => _speed = s.clamp(0.5, 3.0));
+    setState(() => _speed = s.clamp(0.5, 5.0));
     if (_isCasting) {
       ChromecastService().setSpeed(_speed);
     } else if (widget.player.hasBook) {
@@ -767,7 +767,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
               child: Icon(Icons.remove_rounded, size: 20, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
             ),
           ),
-          Expanded(child: AbsorbSlider(value: _speed, min: 0.5, max: 3.0, divisions: 50, activeColor: widget.accent, onChanged: _setSpeed)),
+          Expanded(child: AbsorbSlider(value: _speed, min: 0.5, max: 5.0, divisions: 90, activeColor: widget.accent, onChanged: _setSpeed)),
           GestureDetector(
             onTap: () => _setSpeed(_speed + 0.05),
             child: Container(
@@ -781,7 +781,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('0.5x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
-            Text('3.0x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
+            Text('5.0x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
           ],
         )),
       ]),

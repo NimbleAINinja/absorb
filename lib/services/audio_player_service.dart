@@ -321,13 +321,13 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
   // The Android Auto speed button shows a pre-baked badge for the current rate.
-  // We snap to the nearest 0.05 within the baked range (0.5x..3.0x); every step
+  // We snap to the nearest 0.05 within the baked range (0.5x..5.0x); every step
   // has a generated ic_speed_*x drawable (rendered from Roboto Bold).
   String _speedBadgeIcon() {
     final speed = _service?.speed ?? _player.speed;
     var rate = (speed * 20).round() / 20; // nearest 0.05
     if (rate < 0.5) rate = 0.5;
-    if (rate > 3.0) rate = 3.0;
+    if (rate > 5.0) rate = 5.0;
     // 1.0 -> "1x", 1.2 -> "1_2x", 1.25 -> "1_25x" (matches the generated files).
     final s = rate
         .toStringAsFixed(2)
