@@ -1331,6 +1331,14 @@ class DownloadService extends ChangeNotifier {
     bool automatic = false,
   }) async {
     if (shouldStart?.call() == false) return null;
+    // Episodes are keyed "podcastId-episodeId" everywhere below. A caller
+    // holding the bare podcast id (the transcription download prompt did)
+    // used to fail in the key math before a single request went out.
+    if (episodeId != null && !itemId.endsWith('-$episodeId')) {
+      debugPrint('[Download] "$title": composing the episode key from '
+          'podcast $itemId + episode $episodeId');
+      itemId = '$itemId-$episodeId';
+    }
     try {
       await init().timeout(const Duration(seconds: 8));
     } on TimeoutException catch (e) {
