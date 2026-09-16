@@ -656,6 +656,12 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     return (mp['ebookProgress'] as num?)?.toDouble() ?? 0;
   }
 
+  /// The ebook's own reading progress, apart from any audio progress.
+  double getEbookProgress(String? itemId) {
+    if (itemId == null) return 0;
+    return (_progressMap[itemId]?['ebookProgress'] as num?)?.toDouble() ?? 0;
+  }
+
   /// Reflect ebook reading progress in the in-memory map right away, so covers
   /// and the detail sheet update on return from the reader instead of waiting
   /// for the server round-trip / socket echo.
