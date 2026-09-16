@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../services/player_settings.dart';
 import '../services/transcription_service.dart';
 import '../services/lyrics_service.dart';
+import '../services/sync_point_store.dart';
 import '../services/transcript_line_store.dart';
 import '../widgets/overlay_toast.dart';
 
@@ -78,6 +79,7 @@ class _TranscriptionSettingsScreenState
     );
     if (ok != true || !mounted) return;
     await TranscriptLineStore.instance.clearAll();
+    await SyncPointStore.instance.clearAll();
     if (!mounted) return;
     setState(() => _transcriptCacheBytes = 0);
     showOverlayToast(context, l.lyricsCacheCleared,

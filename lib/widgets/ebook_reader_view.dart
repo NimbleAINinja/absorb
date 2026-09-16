@@ -26,6 +26,7 @@ import '../services/scoped_prefs.dart';
 import '../services/lyrics_service.dart';
 import '../services/read_along_script.dart';
 import '../services/screen_wake.dart';
+import '../services/sync_point_store.dart';
 import '../services/transcript_line_store.dart';
 import '../services/transcription_service.dart';
 import '../services/volume_key_service.dart';
@@ -2248,13 +2249,16 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     showProgressDialog(context, l.findInEbookSearching);
 
     Map<String, dynamic>? decision;
+    final pos = widget.findPositionSeconds;
+    var windowSeconds = findInEbookWindowSeconds;
     try {
-      decision = await _decideFindTarget(transcript, chapterHint);
+      decision = await _decideFindTarget(transcript, chapterHint,
+          nearSeconds: pos);
       // A short transcript can be too generic to stand out ("So what I am.
       // Am I?" ties with dialogue all over the book). Before giving up,
       // listen to a longer window ending at the same spot and try once more.
-      final pos = widget.findPositionSeconds;
       if (decision == null && pos != null) {
+        windowSeconds = _findRetryWindowSeconds;
         debugPrint('[FindEbook] not confident on the short window - '
             'retrying with ${_findRetryWindowSeconds.toStringAsFixed(0)}s');
         try {
@@ -2270,7 +2274,8 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
             final f = File(longer.audioPath);
             if (f.existsSync()) await f.delete();
           } catch (_) {}
-          decision = await _decideFindTarget(longer.text.trim(), chapterHint);
+          decision = await _decideFindTarget(longer.text.trim(), chapterHint,
+              nearSeconds: pos);
         } on TranscriptionException catch (e) {
           debugPrint('[FindEbook] retry transcription failed: $e');
         }
@@ -2294,13 +2299,21 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     if (!jumped) {
       showOverlayToast(context, l.findInEbookNotFound,
           icon: Icons.search_off_rounded);
+      return;
+    }
+    // The transcript window ended at the pause point, so its last words are
+    // where the audio was.
+    if (pos != null && decision['e'] is num) {
+      unawaited(_rememberEbookHit(
+          decision, pos, (decision['e'] as num).toDouble(), windowSeconds));
     }
   }
 
   /// Fuzzy-search the book for the transcript and apply the confidence rules.
   /// Returns {href, excerpt} for a trustworthy hit, null when not confident.
   Future<Map<String, dynamic>?> _decideFindTarget(
-      String transcript, String? chapterHint) async {
+      String transcript, String? chapterHint,
+      {double? nearSeconds}) async {
     // Whisper sometimes emits bracketed non-speech tags; they'd poison matching.
     final cleaned = transcript
         .replaceAll(RegExp(r'\[[^\]]*\]|\([^)]*\)'), ' ')
@@ -2313,12 +2326,15 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
 
     // Spine sections whose TOC chapter agrees with the audio chapter get
     // searched first (and an early exit on a strong hit there).
+    // Sections that earlier finds or read along pinned near this time come
+    // before the chapter-title guess: they are known, the title is inferred.
     final hintBases = <String>[];
+    if (nearSeconds != null) hintBases.addAll(await _syncHintBases(nearSeconds));
     if (chapterHint != null) {
       for (final ch in _chapters) {
         if (_chapterTitlesAgree(chapterHint, ch.title)) {
           final base = ch.href.split('#').first.split('/').last.toLowerCase();
-          if (base.isNotEmpty) hintBases.add(base);
+          if (base.isNotEmpty && !hintBases.contains(base)) hintBases.add(base);
         }
       }
     }
@@ -2360,7 +2376,48 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         'second=${secondScore?.toStringAsFixed(3)} sameSpot=$sameSpot '
         'confident=$confident excerpt="${best['excerpt']}"');
     if (!confident) return null;
-    return {'href': best['href'] as String? ?? '', 'excerpt': best['excerpt'] as String? ?? ''};
+    return {
+      'href': best['href'] as String? ?? '',
+      'excerpt': best['excerpt'] as String? ?? '',
+      'idx': best['idx'],
+      's': best['s'],
+      'e': best['e'],
+    };
+  }
+
+  /// Spine sections holding sync points recorded within ten minutes of
+  /// [seconds], nearest first - the sections a transcript from around that
+  /// time almost certainly lives in.
+  Future<List<String>> _syncHintBases(double seconds) async {
+    final pts = await SyncPointStore.instance.load(widget.itemId);
+    if (pts.isEmpty) return const [];
+    final near = pts.where((p) => (p.t - seconds).abs() <= 600).toList()
+      ..sort((a, b) => (a.t - seconds).abs().compareTo((b.t - seconds).abs()));
+    if (near.isEmpty) return const [];
+    final hrefs = await _spineHrefs();
+    final out = <String>[];
+    for (final p in near) {
+      if (p.si < 0 || p.si >= hrefs.length) continue;
+      final base = hrefs[p.si].split('#').first.split('/').last.toLowerCase();
+      if (base.isNotEmpty && !out.contains(base)) out.add(base);
+      if (out.length >= 3) break;
+    }
+    return out;
+  }
+
+  /// A confirmed hit from a transcript taken at [seconds] becomes a sync
+  /// point at [off] characters into section [idx]; [err] is how far the
+  /// transcript window could put the words from [seconds].
+  Future<void> _rememberEbookHit(
+      Map<String, dynamic> decision, double seconds, double off, double err) async {
+    final idx = decision['idx'];
+    if (idx is! num || seconds < 0) return;
+    final hrefs = await _spineHrefs();
+    await SyncPointStore.instance.add(
+      widget.itemId,
+      SyncPoint(t: seconds, si: idx.toInt(), off: off, src: 'e', err: err),
+      spineLength: hrefs.isEmpty ? null : hrefs.length,
+    );
   }
 
   /// True when an audio chapter title and a TOC chapter title plausibly name
@@ -2745,6 +2802,19 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       debugPrint('[FindAudio] no audio chapters');
       return null;
     }
+    final spineAll = await _spineHrefs();
+    await SyncPointStore.instance.load(
+      widget.itemId,
+      audioDuration: audio.duration > 0 ? audio.duration : null,
+      spineLength: spineAll.isEmpty ? null : spineAll.length,
+    );
+    Future<double> remember(double t) async {
+      await SyncPointStore.instance.add(
+        widget.itemId,
+        SyncPoint(t: t, si: si, off: offset, src: 'a'),
+      );
+      return t;
+    }
 
     // Which audio chapter is this section? That anchors both the initial
     // estimate and the seconds-per-character correction rate. Books whose
@@ -2930,7 +3000,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     var probesLeft = _maxTotalProbes;
 
     Future<double?> run(String label, double e, double from, double to,
-        double pace, int rounds) async {
+        double pace, int rounds, {double? step}) async {
       if (probesLeft <= 0) return null;
       final n = rounds < probesLeft ? rounds : probesLeft;
       probesLeft -= n;
@@ -2946,12 +3016,30 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         rate: pace,
         duration: dur,
         maxProbes: n,
-        scanStepSeconds: scanStep,
+        scanStepSeconds: step ?? scanStep,
       );
     }
 
+    // A spot this book has already been matched at, in this section or the
+    // one either side, beats any chapter-title guess: it is known, and two
+    // of them give the real pace between. Probed first, in a window sized to
+    // how far the pacing had to reach.
+    final sync = await _syncPointCandidate(
+        si: si,
+        offset: offset,
+        total: total,
+        fallbackRate: rate,
+        top: dur > 0 ? dur : est + 3600);
+    if (sync != null) {
+      probed.add(sync.est);
+      final window = sync.hi - sync.lo;
+      final r = await run(sync.label, sync.est, sync.lo, sync.hi, sync.rate, 3,
+          step: (window / 3).clamp(45.0, _scanStepSeconds));
+      if (r != null) return remember(r);
+    }
+
     final t = await run('anchor', est, lo, hi, rate, _maxProbes);
-    if (t != null) return t;
+    if (t != null) return remember(t);
 
     // The anchor never matched. Fallback candidates, most likely first, two
     // rounds each.
@@ -3040,10 +3128,63 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       }
       probed.add(c.est);
       final r = await run(c.label, c.est, c.lo, c.hi, c.rate, 2);
-      if (r != null) return r;
+      if (r != null) return remember(r);
     }
     debugPrint('[FindAudio] no candidate matched');
     return null;
+  }
+
+  /// Where the sync points say [offset] in section [si] should be in the
+  /// audio. Same-section points first; failing that the last point of the
+  /// previous section or the first of the next, paced through the text in
+  /// between. Null when nothing recorded is close enough to help.
+  Future<({String label, double est, double lo, double hi, double rate})?>
+      _syncPointCandidate({
+    required int si,
+    required double offset,
+    required double total,
+    required double fallbackRate,
+    required double top,
+  }) async {
+    final pts = SyncPointStore.instance.cached(widget.itemId);
+    if (pts.isEmpty) return null;
+    final same = pts.where((p) => p.si == si).toList();
+    var e = SyncPointEstimator.inSection(same, offset, fallbackRate);
+    var label = 'sync points';
+    if (e == null) {
+      SyncPoint? prev, next;
+      for (final p in pts) {
+        if (p.si == si - 1 && (prev == null || p.off > prev.off)) prev = p;
+        if (p.si == si + 1 && (next == null || p.off < next.off)) next = p;
+      }
+      if (prev != null) {
+        final counts = await _sectionCharCounts(si - 1, si - 1);
+        if (counts.length == 1 && counts.first > 0) {
+          final chars = (counts.first - prev.off) + offset;
+          if (chars * fallbackRate <= 1800) {
+            e = SyncPointEstimator.fromPoint(prev, chars, fallbackRate);
+            label = 'sync point in the previous section';
+          }
+        }
+      }
+      if (e == null && next != null) {
+        final chars = (total - offset) + next.off;
+        if (chars * fallbackRate <= 1800) {
+          e = SyncPointEstimator.fromPoint(next, -chars, fallbackRate);
+          label = 'sync point in the next section';
+        }
+      }
+    }
+    if (e == null) return null;
+    debugPrint('[FindAudio] $label (${e.how}) from ${pts.length} points: '
+        'est=${e.est.toStringAsFixed(1)} rate=${e.rate.toStringAsFixed(4)}');
+    return (
+      label: '$label (${e.how})',
+      est: e.est.clamp(0.0, top),
+      lo: e.lo.clamp(0.0, top),
+      hi: e.hi.clamp(0.0, top),
+      rate: e.rate,
+    );
   }
 
   /// Initial search window and seconds-per-character pacing from an audio
@@ -3643,9 +3784,11 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       source = 'cached lines';
     }
     Map<String, dynamic>? decision;
+    var err = 4.0;
     try {
       if (text != null) {
-        decision = await _decideFindTarget(text, chapterHint);
+        decision = await _decideFindTarget(text, chapterHint,
+            nearSeconds: pos);
       }
       // Whisper around the playhead: a short window first, a longer one if
       // the words were too ordinary to pin down.
@@ -3654,7 +3797,8 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         final r = await _transcribeForJump(pos, window);
         if (r == null) break;
         source = '${window.toStringAsFixed(0)}s window';
-        decision = await _decideFindTarget(r, chapterHint);
+        err = window / 2;
+        decision = await _decideFindTarget(r, chapterHint, nearSeconds: pos);
       }
     } catch (e) {
       debugPrint('[ReadAlong] find place failed: $e');
@@ -3669,6 +3813,12 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
         decision['href'] as String, decision['excerpt'] as String);
     debugPrint('[ReadAlong] placed the audio at ${pos.toStringAsFixed(1)}s '
         'via $source -> ${decision['href']} jumped=$jumped');
+    // The window sat around the playhead, so its middle is where the audio
+    // was. The lines that follow pin it exactly.
+    if (jumped && decision['s'] is num && decision['e'] is num) {
+      final mid = ((decision['s'] as num) + (decision['e'] as num)) / 2;
+      unawaited(_rememberEbookHit(decision, pos, mid, err));
+    }
   }
 
   /// A transcript of [window] seconds around [pos], or null when the engine
@@ -4102,7 +4252,10 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       }
       _readAlongLocating = true;
       try {
-        await _paintReadAlongLine(needle, exact: needleExact, wordMode: wordMode);
+        await _paintReadAlongLine(needle,
+            exact: needleExact,
+            wordMode: wordMode,
+            lineStart: needleExact && needle == line.text.trim() ? line.start : null);
       } finally {
         _readAlongLocating = false;
       }
@@ -4208,8 +4361,10 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   /// line that isn't in the rendered sections (chapter boundary) is found via
   /// the search book when its text is ebook-exact; Whisper-flavored lines
   /// that don't match are skipped - the next exact line re-anchors.
+  /// [lineStart] is the audio time the sentence starts at, when the needle is
+  /// a book line heard at a known moment; every such hit is a sync point.
   Future<void> _paintReadAlongLine(String needle,
-      {required bool exact, required bool wordMode}) async {
+      {required bool exact, required bool wordMode, double? lineStart}) async {
     final wc = _epubController?.webViewController;
     if (wc == null) return;
     final watch = Stopwatch()..start();
@@ -4247,6 +4402,20 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
       debugPrint('[ReadAlong] "$head" -> page@$_readAlongAt '
           'words=$_readAlongPageWords visible=${d['visible']} '
           '${watch.elapsedMilliseconds}ms | page: "${d['sentence']}"');
+      if (lineStart != null && d['si'] is num && _readAlongAt >= 0) {
+        unawaited(SyncPointStore.instance.add(
+          widget.itemId,
+          SyncPoint(
+            t: lineStart,
+            si: (d['si'] as num).toInt(),
+            off: _readAlongAt.toDouble(),
+            src: 'r',
+          ),
+          audioDuration: AudioPlayerService().currentItemId == widget.itemId
+              ? AudioPlayerService().displayDuration
+              : null,
+        ));
+      }
       if (d['visible'] == false) {
         _readAlongTurn(d['cfi'], d['dir'], why: 'sentence is off the page');
       }

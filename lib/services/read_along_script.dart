@@ -424,6 +424,7 @@ const String _body = r'''
         out.visible = true;
         out.dir = 0;
         out.at = sStart;
+        out.si = c.sectionIndex;
         out.sentence = raw.slice(sStart, Math.min(sEnd, sStart + 90)).replace(/\s+/g, ' ');
         // The old sentence only goes once the new one is found, so a miss
         // leaves the last sentence lit. Unwrapping merges text nodes, so the
