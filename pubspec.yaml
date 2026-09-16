@@ -85,8 +85,11 @@ dependencies:
   # Pausing for interruptions
   audio_session: ^0.1.21
 
-  # chromecast
-  flutter_chrome_cast: ^1.2.6
+  # chromecast. Vendored without its iOS side: Absorb only casts from
+  # Android, and the plugin's Swift package pulls a Cast SDK that now wants
+  # iOS 16, which broke the iOS build for nothing.
+  flutter_chrome_cast:
+    path: packages/flutter_chrome_cast
 
   # Log sharing
   share_plus: ^10.0.0

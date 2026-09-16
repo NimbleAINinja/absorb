@@ -5229,31 +5229,46 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
               itemId: widget.itemId, itemTitle: widget.title);
         },
       ),
-      ListenableBuilder(
-        listenable: ChromecastService(),
-        builder: (_, __) {
-          final cast = ChromecastService();
-          final String label;
-          if (cast.isCasting && cast.castingItemId == widget.itemId) {
-            label = l.castingToDevice(cast.connectedDeviceName ?? 'device');
-          } else if (cast.isConnected) {
-            label = l.castToDeviceNamed(cast.connectedDeviceName ?? 'device');
-          } else {
-            label = l.castToDevice;
-          }
-          return MoreMenuItem(
-            icon: cast.isConnected
-                ? Icons.cast_connected_rounded
-                : Icons.cast_rounded,
-            label: label,
-            accent: accent,
-            onTap: () {
-              Navigator.pop(ctx);
-              _castFromReader();
-            },
-          );
-        },
-      ),
+      // Cast is Android only; iPhones get the AirPlay route picker instead,
+      // same split as the card.
+      if (Platform.isIOS)
+        MoreMenuItem(
+          icon: Icons.airplay_rounded,
+          label: 'AirPlay',
+          accent: accent,
+          onTap: () {
+            Navigator.pop(ctx);
+            const MethodChannel('com.absorb.audio_output')
+                .invokeMethod('showRoutePicker')
+                .catchError((_) => null);
+          },
+        )
+      else
+        ListenableBuilder(
+          listenable: ChromecastService(),
+          builder: (_, __) {
+            final cast = ChromecastService();
+            final String label;
+            if (cast.isCasting && cast.castingItemId == widget.itemId) {
+              label = l.castingToDevice(cast.connectedDeviceName ?? 'device');
+            } else if (cast.isConnected) {
+              label = l.castToDeviceNamed(cast.connectedDeviceName ?? 'device');
+            } else {
+              label = l.castToDevice;
+            }
+            return MoreMenuItem(
+              icon: cast.isConnected
+                  ? Icons.cast_connected_rounded
+                  : Icons.cast_rounded,
+              label: label,
+              accent: accent,
+              onTap: () {
+                Navigator.pop(ctx);
+                _castFromReader();
+              },
+            );
+          },
+        ),
       MoreMenuItem(
         icon: Icons.info_outline_rounded,
         label: l.bookDetailsLabel,

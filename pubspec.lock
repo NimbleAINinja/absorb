@@ -375,10 +375,9 @@ packages:
   flutter_chrome_cast:
     dependency: "direct main"
     description:
-      name: flutter_chrome_cast
-      sha256: "2d87e9dc8c625faaf13fc2c8036ebe6e4675f358e36e646e7d18c18973108279"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/flutter_chrome_cast"
+      relative: true
+    source: path
     version: "1.4.1"
   flutter_epub_viewer:
     dependency: "direct main"
