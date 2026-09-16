@@ -14025,6 +14025,102 @@ abstract class AppLocalizations {
   /// **'Speed {percent}%'**
   String readerAutoScrollSpeed(int percent);
 
+  /// No description provided for @readerMoreControls.
+  ///
+  /// In en, this message translates to:
+  /// **'More controls'**
+  String get readerMoreControls;
+
+  /// No description provided for @readerAutoScrollSleep.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto scroll sleep timer'**
+  String get readerAutoScrollSleep;
+
+  /// No description provided for @readerAutoScrollSleepHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Stops the scrolling after a while and lets the screen go dark.'**
+  String get readerAutoScrollSleepHint;
+
+  /// No description provided for @readerAutoScrollSleepMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String readerAutoScrollSleepMinutes(int minutes);
+
+  /// No description provided for @readerAutoScrollSleepLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min left'**
+  String readerAutoScrollSleepLeft(int minutes);
+
+  /// No description provided for @readerAutoScrollSleepIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto scroll stops in {minutes} min'**
+  String readerAutoScrollSleepIn(int minutes);
+
+  /// No description provided for @readerAutoScrollSleepOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto scroll sleep timer off'**
+  String get readerAutoScrollSleepOff;
+
+  /// No description provided for @readerAutoScrollSleepEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep timer - auto scroll off'**
+  String get readerAutoScrollSleepEnded;
+
+  /// No description provided for @readerDownloadStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Download started'**
+  String get readerDownloadStarted;
+
+  /// No description provided for @detailChaptersJumpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Jump to this chapter?'**
+  String get detailChaptersJumpTitle;
+
+  /// No description provided for @detailChaptersJumpContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback moves to \"{title}\".'**
+  String detailChaptersJumpContent(String title);
+
+  /// No description provided for @detailChaptersJump.
+  ///
+  /// In en, this message translates to:
+  /// **'Jump'**
+  String get detailChaptersJump;
+
+  /// No description provided for @detailChaptersFinished.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 chapter finished} other{{count} chapters finished}}'**
+  String detailChaptersFinished(int count);
+
+  /// No description provided for @detailOtherListeners.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No other listeners} =1{1 other listener} other{{count} other listeners}}'**
+  String detailOtherListeners(int count);
+
+  /// No description provided for @detailSessionsNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No listening sessions yet'**
+  String get detailSessionsNone;
+
+  /// No description provided for @detailSessionsAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All {count} sessions'**
+  String detailSessionsAll(int count);
+
   /// No description provided for @readerVolumeNavWhilePlaying.
   ///
   /// In en, this message translates to:

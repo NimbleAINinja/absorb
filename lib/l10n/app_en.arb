@@ -4659,6 +4659,43 @@
   "@readerAutoScrollSpeed": {
     "placeholders": { "percent": { "type": "int" } }
   },
+  "readerMoreControls": "More controls",
+  "readerAutoScrollSleep": "Auto scroll sleep timer",
+  "readerAutoScrollSleepHint": "Stops the scrolling after a while and lets the screen go dark.",
+  "readerAutoScrollSleepMinutes": "{minutes} min",
+  "@readerAutoScrollSleepMinutes": {
+    "placeholders": { "minutes": { "type": "int" } }
+  },
+  "readerAutoScrollSleepLeft": "{minutes} min left",
+  "@readerAutoScrollSleepLeft": {
+    "placeholders": { "minutes": { "type": "int" } }
+  },
+  "readerAutoScrollSleepIn": "Auto scroll stops in {minutes} min",
+  "@readerAutoScrollSleepIn": {
+    "placeholders": { "minutes": { "type": "int" } }
+  },
+  "readerAutoScrollSleepOff": "Auto scroll sleep timer off",
+  "readerAutoScrollSleepEnded": "Sleep timer - auto scroll off",
+  "readerDownloadStarted": "Download started",
+  "detailChaptersJumpTitle": "Jump to this chapter?",
+  "detailChaptersJumpContent": "Playback moves to \"{title}\".",
+  "@detailChaptersJumpContent": {
+    "placeholders": { "title": { "type": "String" } }
+  },
+  "detailChaptersJump": "Jump",
+  "detailChaptersFinished": "{count, plural, =1{1 chapter finished} other{{count} chapters finished}}",
+  "@detailChaptersFinished": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "detailOtherListeners": "{count, plural, =0{No other listeners} =1{1 other listener} other{{count} other listeners}}",
+  "@detailOtherListeners": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "detailSessionsNone": "No listening sessions yet",
+  "detailSessionsAll": "All {count} sessions",
+  "@detailSessionsAll": {
+    "placeholders": { "count": { "type": "int" } }
+  },
   "readerVolumeNavWhilePlaying": "Even while audio is playing",
   "readerMoreFonts": "Download more fonts",
   "readerFontRemove": "Remove download",

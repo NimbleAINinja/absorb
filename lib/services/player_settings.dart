@@ -1063,6 +1063,8 @@ class PlayerSettings {
 
   static Future<double> getEreaderAutoScrollSpeed() => _get('ereaderAutoScrollSpeed', 40.0);
   static Future<void> setEreaderAutoScrollSpeed(double value) => _set('ereaderAutoScrollSpeed', value);
+  static Future<int> getEreaderAutoScrollSleepMinutes() => _get('ereaderAutoScrollSleepMinutes', 30);
+  static Future<void> setEreaderAutoScrollSleepMinutes(int value) => _set('ereaderAutoScrollSleepMinutes', value);
 
   /// When on, the screen is locked to portrait (rotation disabled). Default off
   /// keeps the current behaviour where all orientations are allowed.

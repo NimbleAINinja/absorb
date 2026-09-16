@@ -16,6 +16,7 @@ import '../screens/app_shell.dart';
 import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/chapter_lookup.dart';
+import '../services/chromecast_service.dart';
 import '../services/download_service.dart';
 import '../services/ebook_annotation_service.dart';
 import '../services/ebook_cache.dart';
@@ -34,7 +35,12 @@ import 'overlay_toast.dart';
 import 'transcription_download_prompt.dart';
 import 'progress_dialog.dart';
 import 'quote_share_sheet.dart';
-import 'card_buttons.dart' show CardSpeedSheet;
+import 'book_detail_sheet.dart';
+import 'card_buttons.dart' show CardSpeedSheet, MoreMenuItem, SimpleBookmarkSheet;
+import 'card_chapters_sheet.dart';
+import 'chromecast_button.dart';
+import 'equalizer_sheet.dart';
+import 'sleep_timer_sheet.dart';
 
 /// Reader background/text presets (e-reader themes). Colors are hex so they
 /// feed both the WebView CSS and the Flutter overlays.
@@ -229,6 +235,13 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   // Hold the screen on for the whole read, not only while auto scroll or
   // read along moves the page (GH #384).
   bool _keepAwake = true;
+  // Auto scroll's own sleep timer, set by press-and-hold on its button.
+  Timer? _autoScrollSleepTimer;
+  DateTime? _autoScrollSleepEnd;
+  int _autoScrollSleepMinutes = 0;
+  // After that timer fires the screen may go dark even with keep-awake on,
+  // until the reader is touched again.
+  bool _screenWakeHeldOff = false;
   static const _spreadModes = [EpubSpread.auto, EpubSpread.none, EpubSpread.always];
   // E-reader background theme (empty = follow the app's light/dark) and font.
   String _themeId = '';
@@ -595,7 +608,19 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   /// for it. Every path that changes one of those ends here, and dispose
   /// releases it outright since the platform never clears it on its own.
   void _syncScreenWake() {
+    if (_screenWakeHeldOff) {
+      ScreenWake.keepOn(false);
+      return;
+    }
     ScreenWake.keepOn(_keepAwake || _autoScroll || _readAlongOn);
+  }
+
+  /// The reader is being used again after the auto scroll sleep timer let
+  /// the screen go dark.
+  void _wakeScreenAgain() {
+    if (!_screenWakeHeldOff) return;
+    _screenWakeHeldOff = false;
+    _syncScreenWake();
   }
 
   Future<void> _updateKeepAwake(bool on) async {
@@ -629,6 +654,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   void dispose() {
     _stopReadAlong();
     _speedToast?.dismiss();
+    _autoScrollSleepTimer?.cancel();
     if (_autoScroll) _epubController?.autoScrollStop();
     ScreenWake.keepOn(false);
     _quietLib.setReaderQuiet(false);
@@ -656,6 +682,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   }
 
   void _toggleControls() {
+    _wakeScreenAgain();
     setState(() => _showControls = !_showControls);
   }
 
@@ -671,6 +698,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   /// the action commits after a short grace window that the highlight tap can
   /// cancel. No highlights, no added latency.
   void _readerTapAt(double frac, String source) {
+    _wakeScreenAgain();
     // While auto scroll runs, the in-WebView pad owns taps: pause, resume and
     // press-and-hold to stop. This Listener sees raw pointers regardless of the
     // platform view, so without this it turned pages under the blind.
@@ -1822,6 +1850,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
           _autoScroll = false;
           _autoScrollPaused = false;
         });
+        _cancelAutoScrollSleep();
         _syncScreenWake();
         final l = AppLocalizations.of(context)!;
         showOverlayToast(
@@ -1868,6 +1897,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
   Future<void> _toggleAutoScroll() async {
     if (_autoScroll) {
       await _epubController?.autoScrollStop();
+      _cancelAutoScrollSleep();
       if (!mounted) return;
       setState(() {
         _autoScroll = false;
@@ -1884,6 +1914,7 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     final started =
         await _epubController?.autoScrollStart(speed: _autoScrollSpeed) ?? false;
     if (!mounted || !started) return;
+    _screenWakeHeldOff = false;
     ScreenWake.keepOn(true);
     showOverlayToast(context, AppLocalizations.of(context)!.readerAutoScrollStarted,
         icon: Icons.swap_vert_rounded);
@@ -4963,6 +4994,414 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
     return '${t}x';
   }
 
+  /// Press-and-hold on the auto scroll button: stop the blind after a while
+  /// and let the screen go dark, for reading yourself to sleep. Picking a
+  /// time starts auto scroll if it isn't running.
+  Future<void> _showAutoScrollSleepSheet() async {
+    final l = AppLocalizations.of(context)!;
+    Timer? ticker;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        final tt = Theme.of(ctx).textTheme;
+        return StatefulBuilder(builder: (ctx, setSheet) {
+          // The minutes-left line keeps up while the sheet is open.
+          ticker ??= Timer.periodic(const Duration(seconds: 20), (t) {
+            if (ctx.mounted) {
+              setSheet(() {});
+            } else {
+              t.cancel();
+            }
+          });
+          final end = _autoScrollSleepEnd;
+          final left = end == null
+              ? null
+              : (end.difference(DateTime.now()).inSeconds / 60).ceil().clamp(1, 999);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.readerAutoScrollSleep,
+                      style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(
+                    left != null
+                        ? l.readerAutoScrollSleepLeft(left)
+                        : l.readerAutoScrollSleepHint,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final m in const [10, 15, 20, 30, 45, 60])
+                      ChoiceChip(
+                        label: Text(l.readerAutoScrollSleepMinutes(m)),
+                        selected: end != null && _autoScrollSleepMinutes == m,
+                        onSelected: (_) {
+                          Navigator.pop(ctx);
+                          _armAutoScrollSleep(m);
+                        },
+                      ),
+                    if (end != null)
+                      ActionChip(
+                        label: Text(l.off),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _cancelAutoScrollSleep(toast: true);
+                        },
+                      ),
+                  ]),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    ).whenComplete(() => ticker?.cancel());
+  }
+
+  Future<void> _armAutoScrollSleep(int minutes) async {
+    await PlayerSettings.setEreaderAutoScrollSleepMinutes(minutes);
+    if (!mounted) return;
+    if (!_autoScroll) {
+      await _toggleAutoScroll();
+      if (!mounted || !_autoScroll) return;
+    }
+    _autoScrollSleepTimer?.cancel();
+    _autoScrollSleepMinutes = minutes;
+    _autoScrollSleepEnd = DateTime.now().add(Duration(minutes: minutes));
+    _autoScrollSleepTimer =
+        Timer(Duration(minutes: minutes), _onAutoScrollSleepFired);
+    debugPrint('[AutoScroll] sleep timer armed for ${minutes}m');
+    showOverlayToast(context, AppLocalizations.of(context)!.readerAutoScrollSleepIn(minutes),
+        icon: Icons.nightlight_round_outlined);
+  }
+
+  void _cancelAutoScrollSleep({bool toast = false}) {
+    if (_autoScrollSleepTimer == null) return;
+    _autoScrollSleepTimer?.cancel();
+    _autoScrollSleepTimer = null;
+    _autoScrollSleepEnd = null;
+    _autoScrollSleepMinutes = 0;
+    debugPrint('[AutoScroll] sleep timer cancelled');
+    if (toast && mounted) {
+      showOverlayToast(context, AppLocalizations.of(context)!.readerAutoScrollSleepOff,
+          icon: Icons.nightlight_round_outlined);
+    }
+  }
+
+  Future<void> _onAutoScrollSleepFired() async {
+    _autoScrollSleepTimer = null;
+    _autoScrollSleepEnd = null;
+    _autoScrollSleepMinutes = 0;
+    if (!mounted) return;
+    debugPrint('[AutoScroll] sleep timer fired - stopping the blind and '
+        'letting the screen sleep');
+    _speedToast?.dismiss();
+    _speedToast = null;
+    if (_autoScroll) await _toggleAutoScroll();
+    if (!mounted) return;
+    _screenWakeHeldOff = true;
+    _syncScreenWake();
+    showOverlayToast(context, AppLocalizations.of(context)!.readerAutoScrollSleepEnded,
+        icon: Icons.nightlight_round_outlined);
+  }
+
+  /// The up arrow on the media bar: the audiobook card's controls that make
+  /// sense with the book open, on the app surface like the speed sheet.
+  void _showReaderControls() {
+    final accent = Theme.of(context).colorScheme.primary;
+    final tt = Theme.of(context).textTheme;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).bottomSheetTheme.backgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border(
+                top: BorderSide(color: accent.withValues(alpha: 0.2), width: 1)),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withValues(alpha: 0.24),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                LayoutBuilder(builder: (_, constraints) {
+                  const gap = 10.0;
+                  final textScale = MediaQuery.textScalerOf(ctx).scale(1.0);
+                  final cols =
+                      (constraints.maxWidth < 340 || textScale >= 1.3) ? 2 : 3;
+                  final cellW = (constraints.maxWidth - gap * (cols - 1)) / cols;
+                  final cellH =
+                      (cols == 2 ? 72.0 : 80.0) * textScale.clamp(1.0, 1.7) + 8;
+                  return Wrap(spacing: gap, runSpacing: gap, children: [
+                    for (final tile in _readerControlTiles(ctx, accent, tt))
+                      SizedBox(width: cellW, height: cellH, child: tile),
+                  ]);
+                }),
+                const SizedBox(height: 8),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _readerControlTiles(BuildContext ctx, Color accent, TextTheme tt) {
+    final l = AppLocalizations.of(context)!;
+    final player = AudioPlayerService();
+    final isActive = player.hasBook && player.currentItemId == widget.itemId;
+    return [
+      MoreMenuItem(
+        icon: Icons.list_rounded,
+        label: l.chapters,
+        accent: accent,
+        onTap: () {
+          Navigator.pop(ctx);
+          _showAudioChapters(accent, tt);
+        },
+      ),
+      MoreMenuItem(
+        icon: Icons.nightlight_round_outlined,
+        label: l.timer,
+        accent: accent,
+        onTap: () {
+          Navigator.pop(ctx);
+          showSleepTimerSheet(context, accent);
+        },
+      ),
+      MoreMenuItem(
+        icon: Icons.bookmark_outline_rounded,
+        label: l.bookmarks,
+        accent: accent,
+        enabled: isActive,
+        onTap: () {
+          Navigator.pop(ctx);
+          showModalBottomSheet(
+            context: context,
+            backgroundColor: Colors.transparent,
+            isScrollControlled: true,
+            useSafeArea: true,
+            builder: (_) => DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.05,
+              snap: true,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (_, sc) => SimpleBookmarkSheet(
+                itemId: widget.itemId,
+                player: player,
+                accent: accent,
+                scrollController: sc,
+                onChanged: () {},
+              ),
+            ),
+          );
+        },
+      ),
+      MoreMenuItem(
+        icon: Icons.equalizer_rounded,
+        label: l.equalizerLabel,
+        accent: accent,
+        onTap: () {
+          Navigator.pop(ctx);
+          showEqualizerSheet(context, accent,
+              itemId: widget.itemId, itemTitle: widget.title);
+        },
+      ),
+      ListenableBuilder(
+        listenable: ChromecastService(),
+        builder: (_, __) {
+          final cast = ChromecastService();
+          final String label;
+          if (cast.isCasting && cast.castingItemId == widget.itemId) {
+            label = l.castingToDevice(cast.connectedDeviceName ?? 'device');
+          } else if (cast.isConnected) {
+            label = l.castToDeviceNamed(cast.connectedDeviceName ?? 'device');
+          } else {
+            label = l.castToDevice;
+          }
+          return MoreMenuItem(
+            icon: cast.isConnected
+                ? Icons.cast_connected_rounded
+                : Icons.cast_rounded,
+            label: label,
+            accent: accent,
+            onTap: () {
+              Navigator.pop(ctx);
+              _castFromReader();
+            },
+          );
+        },
+      ),
+      MoreMenuItem(
+        icon: Icons.info_outline_rounded,
+        label: l.bookDetailsLabel,
+        accent: accent,
+        onTap: () {
+          Navigator.pop(ctx);
+          showBookDetailSheet(context, widget.itemId);
+        },
+      ),
+      ListenableBuilder(
+        listenable: DownloadService(),
+        builder: (_, __) {
+          final dl = DownloadService();
+          final downloaded = dl.isDownloaded(widget.itemId);
+          final downloading = dl.isDownloading(widget.itemId);
+          final progress = dl.downloadProgress(widget.itemId);
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final green = isDark
+              ? Colors.greenAccent.withValues(alpha: 0.7)
+              : Colors.green.shade700;
+          final IconData icon;
+          final String label;
+          final Color tileAccent;
+          if (downloaded) {
+            icon = Icons.download_done_rounded;
+            label = l.saved;
+            tileAccent = green;
+          } else if (downloading) {
+            icon = Icons.downloading_rounded;
+            label = '${(progress * 100).toStringAsFixed(0)}%';
+            tileAccent = accent;
+          } else {
+            icon = Icons.download_outlined;
+            label = l.download;
+            tileAccent = accent;
+          }
+          return MoreMenuItem(
+            icon: icon,
+            label: label,
+            accent: tileAccent,
+            onTap: () {
+              Navigator.pop(ctx);
+              if (!downloaded && !downloading) _downloadFromReader();
+            },
+          );
+        },
+      ),
+    ];
+  }
+
+  Future<void> _showAudioChapters(Color accent, TextTheme tt) async {
+    final l = AppLocalizations.of(context)!;
+    final player = AudioPlayerService();
+    final cast = ChromecastService();
+    final castingThis = cast.isCasting && cast.castingItemId == widget.itemId;
+    final isActive = player.hasBook && player.currentItemId == widget.itemId;
+    final chapters = castingThis
+        ? cast.castingChapters
+        : (isActive ? player.chapters : _audioChapters);
+    if (chapters.isEmpty) {
+      showOverlayToast(context, l.noChaptersBook, icon: Icons.list_rounded);
+      return;
+    }
+    double pos;
+    if (castingThis) {
+      pos = cast.castPosition.inMilliseconds / 1000.0;
+    } else if (isActive) {
+      pos = player.position.inMilliseconds / 1000.0;
+    } else {
+      pos = await ProgressSyncService().getSavedPosition(widget.itemId);
+    }
+    final speedAdjusted = await PlayerSettings.getSpeedAdjustedTime();
+    if (!mounted) return;
+    showChaptersSheet(
+      context: context,
+      accent: accent,
+      tt: tt,
+      chapters: chapters,
+      totalDuration: castingThis
+          ? cast.castingDuration
+          : (isActive ? player.totalDuration : _audioDuration),
+      currentPosition: pos,
+      isPlaybackActive: isActive || castingThis,
+      isCastingThis: castingThis,
+      displaySpeed: speedAdjusted && isActive ? player.speed : 1.0,
+      player: player,
+      itemId: widget.itemId,
+    );
+  }
+
+  void _castFromReader() {
+    final cast = ChromecastService();
+    final api = context.read<AuthProvider>().apiService;
+    final coverUrl = api?.getCoverUrl(widget.itemId);
+    if (cast.isCasting && cast.castingItemId == widget.itemId) {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => CastControlSheet(),
+      );
+    } else if (cast.isConnected) {
+      if (api != null) {
+        cast.castItem(
+          api: api,
+          itemId: widget.itemId,
+          title: widget.title,
+          author: _audioAuthor,
+          coverUrl: coverUrl,
+          totalDuration: _audioDuration,
+          chapters: _audioChapters,
+        );
+      }
+    } else {
+      showCastDevicePicker(
+        context,
+        api: api,
+        itemId: widget.itemId,
+        title: widget.title,
+        author: _audioAuthor,
+        coverUrl: coverUrl,
+        totalDuration: _audioDuration,
+        chapters: _audioChapters,
+      );
+    }
+  }
+
+  Future<void> _downloadFromReader() async {
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
+    final error = await DownloadService().downloadItem(
+      api: api,
+      itemId: widget.itemId,
+      title: widget.title,
+      author: _audioAuthor,
+      coverUrl: api.getCoverUrl(widget.itemId),
+      libraryId: context.read<LibraryProvider>().selectedLibraryId,
+    );
+    if (!mounted) return;
+    showOverlayToast(
+      context,
+      error ?? AppLocalizations.of(context)!.readerDownloadStarted,
+      icon: error != null ? Icons.error_outline_rounded : Icons.download_rounded,
+    );
+  }
+
   /// Playback controls for immersion reading (listen while you read). Drives the
   /// shared player; only shown while a book is loaded.
   Widget _buildMediaBar(Color fg, Color accent) {
@@ -5047,7 +5486,17 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
                   ],
                 ),
               ),
-              const SizedBox(width: 64), // balance the speed button
+              SizedBox(
+                width: 64,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    icon: Icon(Icons.keyboard_arrow_up_rounded, color: fg),
+                    tooltip: AppLocalizations.of(context)!.readerMoreControls,
+                    onPressed: _showReaderControls,
+                  ),
+                ),
+              ),
             ],
           ),
         );
@@ -5367,14 +5816,18 @@ class EbookReaderViewState extends State<EbookReaderView> with WidgetsBindingObs
                                   onPressed: _showAnnotationsSheet,
                                 ),
                               ),
+                              // No tooltip here: its long press would take the
+                              // gesture the sleep timer sheet needs.
                               Expanded(
-                                child: IconButton(
-                                  icon: Icon(
-                                    Icons.swap_vert_rounded,
-                                    color: _autoScroll ? accent : fg,
+                                child: GestureDetector(
+                                  onLongPress: _showAutoScrollSleepSheet,
+                                  child: IconButton(
+                                    icon: Icon(
+                                      Icons.swap_vert_rounded,
+                                      color: _autoScroll ? accent : fg,
+                                    ),
+                                    onPressed: _toggleAutoScroll,
                                   ),
-                                  tooltip: AppLocalizations.of(context)!.readerAutoScroll,
-                                  onPressed: _toggleAutoScroll,
                                 ),
                               ),
                               Expanded(
